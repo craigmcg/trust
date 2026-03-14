@@ -44,10 +44,10 @@ function span(j: JournalistStats): string {
 }
 
 function printTable(journalists: JournalistStats[], title: string, total: number): void {
-  const divider = "─".repeat(90);
-  console.log(`\n${"═".repeat(90)}`);
+  const divider = "─".repeat(113);
+  console.log(`\n${"═".repeat(115)}`);
   console.log(`  ${title}`);
-  console.log(`${"═".repeat(90)}\n`);
+  console.log(`${"═".repeat(115)}\n`);
   console.log(`  ${"Journalist".padEnd(32)} ${"Articles".padStart(8)}  ${"Claims".padStart(6)}  ${"✓ Correct".padStart(10)}  ${"~ Partial".padStart(10)}  ${"✗ Incorrect".padStart(11)}  ${"? Pending".padStart(10)}  ${"Span".padStart(11)}`);
   console.log(`  ${divider}`);
 
