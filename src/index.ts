@@ -45,7 +45,13 @@ async function fetchPage(page: number, retries = 3): Promise<string[]> {
   return data.response.docs
     .map((doc) => doc.byline?.original)
     .filter((name): name is string => Boolean(name))
-    .map((name) => name.replace(/^By /i, "").trim());
+    .flatMap((name) =>
+      name
+        .replace(/^By /i, "")
+        .split(/,| and /)
+        .map((n) => n.trim())
+        .filter(Boolean)
+    );
 }
 
 async function getPoliticalJournalists(): Promise<void> {
