@@ -133,7 +133,9 @@ async function qaReview(
   return { status, evidence, url };
 }
 
-export async function runCheck(nytKey: string, anthropicKey: string, qa = false): Promise<void> {
+export type CheckStats = Record<Status, number>;
+
+export async function runCheck(nytKey: string, anthropicKey: string, qa = false): Promise<CheckStats> {
   const anthropic = new Anthropic({ apiKey: anthropicKey });
   const db = openDb();
 
@@ -141,7 +143,7 @@ export async function runCheck(nytKey: string, anthropicKey: string, qa = false)
   if (pending.length === 0) {
     console.log("No pending speculations to check.");
     db.close();
-    return;
+    return { confirmed: 0, partial: 0, refuted: 0, pending: 0 };
   }
 
   console.log(`Checking ${pending.length} pending speculations${qa ? " (QA mode)" : ""}...\n`);
@@ -187,4 +189,5 @@ export async function runCheck(nytKey: string, anthropicKey: string, qa = false)
   console.log(`  pending:   ${counts.pending}\n`);
 
   db.close();
+  return counts;
 }

@@ -58,6 +58,13 @@ If an article has no checkable speculations, return an empty array for it.`,
   return response.parsed_output!;
 }
 
+export interface ExtractStats {
+  articles: number;
+  claims: number;
+  oldestFetched: string | null;
+  backfillComplete: boolean;
+}
+
 async function processArticles(anthropic: Anthropic, articles: Article[]): Promise<number> {
   const db = openDb();
   let totalNew = 0;
@@ -106,7 +113,7 @@ export async function runExtract(
   nytKey: string,
   anthropicKey: string,
   options: { backfill?: boolean; months?: number } = {}
-): Promise<void> {
+): Promise<ExtractStats> {
   const { backfill = false, months = 1 } = options;
   const anthropic = new Anthropic({ apiKey: anthropicKey });
   const db = openDb();
@@ -124,7 +131,7 @@ export async function runExtract(
     if (windowEnd.toISOString().slice(0, 10) <= BACKFILL_STOP_DATE) {
       console.log(`Backfill complete — reached stop date ${BACKFILL_STOP_DATE}.`);
       db.close();
-      return;
+      return { articles: 0, claims: 0, oldestFetched: BACKFILL_STOP_DATE, backfillComplete: true };
     }
 
     // Clamp window start to stop date
@@ -163,22 +170,26 @@ export async function runExtract(
 
   if (articles.length === 0) {
     console.log("No articles found for this date range.");
-    return;
+    const db2 = openDb();
+    const oldest = getState(db2, "oldest_fetched_date");
+    db2.close();
+    return { articles: 0, claims: 0, oldestFetched: oldest, backfillComplete: false };
   }
 
   console.log("Extracting speculative claims with Claude...\n");
   const totalNew = await processArticles(anthropic, articles);
   console.log(`\nDone. Stored ${totalNew} new speculative claims.\n`);
 
+  const db2 = openDb();
+  const oldest = getState(db2, "oldest_fetched_date");
+  db2.close();
+
   if (backfill) {
-    const db2 = openDb();
-    const oldest = getState(db2, "oldest_fetched_date");
-    db2.close();
+    const complete = oldest !== null && oldest <= BACKFILL_STOP_DATE;
     console.log(`Oldest fetched: ${oldest}  |  Stop date: ${BACKFILL_STOP_DATE}`);
-    if (oldest && oldest <= BACKFILL_STOP_DATE) {
-      console.log("Backfill complete!");
-    } else {
-      console.log(`Run 'npm run extract:backfill' again to continue.\n`);
-    }
+    console.log(complete ? "Backfill complete!" : `Run 'npm run extract:backfill' again to continue.\n`);
+    return { articles: articles.length, claims: totalNew, oldestFetched: oldest, backfillComplete: complete };
   }
+
+  return { articles: articles.length, claims: totalNew, oldestFetched: oldest, backfillComplete: false };
 }

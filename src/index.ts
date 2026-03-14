@@ -29,6 +29,11 @@ switch (command) {
     runReport();
     break;
   }
+  case "nightly": {
+    const { runNightly } = await import("./nightly.js");
+    await runNightly();
+    break;
+  }
   case "edit": {
     const { runEdit } = await import("./edit.js");
     await runEdit();

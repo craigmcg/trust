@@ -93,3 +93,30 @@ export function getState(db: Database.Database, key: string): string | null {
 export function setState(db: Database.Database, key: string, value: string): void {
   db.prepare(`INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)`).run(key, value);
 }
+
+export interface DbStats {
+  total: number;
+  confirmed: number;
+  partial: number;
+  refuted: number;
+  pending: number;
+  oldestArticle: string;
+  newestArticle: string;
+  journalists: number;
+}
+
+export function getDbStats(db: Database.Database): DbStats {
+  const row = db.prepare(`
+    SELECT
+      COUNT(*)                                      AS total,
+      SUM(status = 'confirmed')                     AS confirmed,
+      SUM(status = 'partial')                       AS partial,
+      SUM(status = 'refuted')                       AS refuted,
+      SUM(status = 'pending')                       AS pending,
+      MIN(article_date)                             AS oldestArticle,
+      MAX(article_date)                             AS newestArticle,
+      COUNT(DISTINCT journalist)                    AS journalists
+    FROM speculations
+  `).get() as DbStats;
+  return row;
+}
