@@ -14,15 +14,24 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function fetchPage(apiKey: string, page: number, query: string, retries = 3): Promise<Article[]> {
-  const params = new URLSearchParams({ q: query, page: String(page), "api-key": apiKey });
+async function fetchPage(
+  apiKey: string,
+  page: number,
+  query: string,
+  beginDate?: string,
+  endDate?: string,
+  retries = 3
+): Promise<Article[]> {
+  const params = new URLSearchParams({ q: query, page: String(page), sort: "newest", "api-key": apiKey });
+  if (beginDate) params.set("begin_date", beginDate);
+  if (endDate) params.set("end_date", endDate);
   const response = await fetch(`${BASE_URL}?${params}`);
 
   if (response.status === 429 && retries > 0) {
     const wait = (4 - retries) * 10000 + 10000;
     process.stdout.write(`\n  Rate limited, retrying in ${wait / 1000}s...`);
     await sleep(wait);
-    return fetchPage(apiKey, page, query, retries - 1);
+    return fetchPage(apiKey, page, query, beginDate, endDate, retries - 1);
   }
 
   if (!response.ok) return [];
@@ -55,13 +64,21 @@ async function fetchPage(apiKey: string, page: number, query: string, retries = 
   }));
 }
 
-export async function fetchArticles(apiKey: string, pages = 5): Promise<Article[]> {
+export async function fetchArticles(
+  apiKey: string,
+  options: { beginDate?: string; endDate?: string; maxPages?: number } = {}
+): Promise<Article[]> {
+  const { beginDate, endDate, maxPages = 100 } = options;
   const articles: Article[] = [];
-  for (let page = 0; page < pages; page++) {
-    process.stdout.write(`  Page ${page + 1}/${pages}...\r`);
-    articles.push(...await fetchPage(apiKey, page, "politics"));
-    if (page < pages - 1) await sleep(2000);
+
+  for (let page = 0; page < maxPages; page++) {
+    process.stdout.write(`  Page ${page + 1} (${articles.length} articles so far)...\r`);
+    const batch = await fetchPage(apiKey, page, "politics", beginDate, endDate);
+    articles.push(...batch);
+    if (batch.length < 10) break; // last page
+    if (page < maxPages - 1) await sleep(2000);
   }
+
   return articles;
 }
 
@@ -72,4 +89,16 @@ export async function searchArticles(apiKey: string, query: string, pages = 3): 
     if (page < pages - 1) await sleep(2000);
   }
   return articles;
+}
+
+// Format a Date as YYYYMMDD for the NYT API
+export function toNytDate(d: Date): string {
+  return d.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+// Subtract N months from a date
+export function subtractMonths(d: Date, months: number): Date {
+  const result = new Date(d);
+  result.setMonth(result.getMonth() - months);
+  return result;
 }

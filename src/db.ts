@@ -26,6 +26,10 @@ export interface Speculation {
 export function openDb(): Database.Database {
   const db = new Database(DB_PATH);
   db.exec(`
+    CREATE TABLE IF NOT EXISTS state (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS speculations (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
       journalist      TEXT NOT NULL,
@@ -79,4 +83,13 @@ export function updateStatus(
 
 export function getAll(db: Database.Database): Speculation[] {
   return db.prepare(`SELECT * FROM speculations ORDER BY article_date DESC`).all() as Speculation[];
+}
+
+export function getState(db: Database.Database, key: string): string | null {
+  const row = db.prepare(`SELECT value FROM state WHERE key = ?`).get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setState(db: Database.Database, key: string, value: string): void {
+  db.prepare(`INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)`).run(key, value);
 }

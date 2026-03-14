@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "extract": "node dist/index.js extract",
+    "extract:backfill": "node dist/index.js extract --backfill",
     "check": "node dist/index.js check",
     "check:qa": "node dist/index.js check --qa",
     "report": "node dist/index.js report",

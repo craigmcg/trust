@@ -12,7 +12,10 @@ const command = process.argv[2];
 switch (command) {
   case "extract": {
     const { runExtract } = await import("./extract.js");
-    await runExtract(NYT_API_KEY, ANTHROPIC_API_KEY);
+    const backfill = process.argv.includes("--backfill");
+    const monthsArg = process.argv.find((a) => a.startsWith("--months="));
+    const months = monthsArg ? parseInt(monthsArg.split("=")[1]!, 10) : 1;
+    await runExtract(NYT_API_KEY, ANTHROPIC_API_KEY, { backfill, months });
     break;
   }
   case "check": {
@@ -33,7 +36,10 @@ switch (command) {
   }
   default:
     console.log("Usage: npm run <command>");
-    console.log("  extract  — fetch NYT articles and extract speculative claims");
-    console.log("  check    — check pending speculations against recent news");
-    console.log("  report   — show all speculations and journalist summary");
+    console.log("  extract              — fetch new NYT articles since last run");
+    console.log("  extract:backfill     — fetch one month further back (repeat to go deeper)");
+    console.log("  check                — check pending speculations against recent news");
+    console.log("  check:qa             — check with interactive review");
+    console.log("  report               — show all speculations and journalist summary");
+    console.log("  edit                 — edit or correct an existing assessment");
 }
