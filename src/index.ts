@@ -26,6 +26,11 @@ switch (command) {
     runReport();
     break;
   }
+  case "edit": {
+    const { runEdit } = await import("./edit.js");
+    await runEdit();
+    break;
+  }
   default:
     console.log("Usage: npm run <command>");
     console.log("  extract  — fetch NYT articles and extract speculative claims");
