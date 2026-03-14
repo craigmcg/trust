@@ -11,9 +11,12 @@
   "keywords": [],
   "author": "Craig McGowan <craigmcg.acc@gmail.com>",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "devDependencies": {
     "@types/node": "^25.5.0",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1"
   }
 }
