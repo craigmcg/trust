@@ -127,6 +127,21 @@ Tracks fetch progress:
 
 ---
 
+## Source Files
+
+| File | Description |
+|------|-------------|
+| `src/index.ts` | CLI entry point. Reads `process.argv` to dispatch to the correct command handler (`extract`, `check`, `report`, `edit`, `nightly`), passing flags like `--backfill`, `--qa`, and `--sort=accuracy`. |
+| `src/db.ts` | All SQLite logic. Defines the `Speculation` type and `Status` enum, creates the `speculations` and `state` tables on first open, and exports CRUD functions: `insertSpeculation`, `getPending`, `updateStatus`, `getAll`, `getState`, `setState`, `getDbStats`. |
+| `src/nyt.ts` | NYT Article Search API client. `fetchArticles()` pages through results for a date range (used by extract); `searchArticles()` queries by keyword (used by check). Includes exponential-backoff retry on 429 rate-limit responses, plus `toNytDate()` and `subtractMonths()` date helpers. |
+| `src/extract.ts` | Fetches articles from `nyt.ts` and sends them to Claude in batches of 10 to extract falsifiable claims. Handles both normal mode (articles since last run) and backfill mode (one month further back each call, stopping at 2019-01-01). Writes new claims to the DB via `insertSpeculation` and updates `oldest_fetched_date` / `newest_fetched_date` in the `state` table. |
+| `src/check.ts` | Verifies pending speculations. For each one, searches NYT for related articles, then asks Claude to assess the outcome (`confirmed` / `partial` / `refuted` / `pending`). In `--qa` mode, shows Claude's reasoning interactively and lets the user accept or override before saving. Updates the DB via `updateStatus`. |
+| `src/report.ts` | Reads the full database and prints a summary table of the top 40 journalists by claim volume, with columns for total claims and % correct / partial / incorrect / pending. Accepts a `sort` argument: `"volume"` (default) or `"accuracy"` (re-sorts the top 40 by % correct). |
+| `src/edit.ts` | Interactive CLI for correcting an existing assessment. Lists all speculations with their current status, prompts for a number, shows the full record, then lets the user change the status and update the evidence note. |
+| `src/nightly.ts` | Orchestrates the full pipeline: (1) fetch new articles, (2) run up to 5 backfill months, (3) check all pending speculations, (4) email a summary report via nodemailer/Gmail SMTP. Reads `GMAIL_USER` and `GMAIL_APP_PASSWORD` from `.env`; if absent, prints the email body to stdout instead. |
+
+---
+
 ## Key Design Decisions
 
 **Claims must be falsifiable** — Claude is instructed to extract only specific, checkable predictions, not vague sentiment or characterisation. "The policy may be controversial" is rejected; "The order could collapse bipartisan legislation" is kept.
