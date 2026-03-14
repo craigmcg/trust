@@ -5,6 +5,7 @@ const TOP_N = 40;
 interface JournalistStats {
   name: string;
   total: number;
+  articles: number;
   confirmed: number;
   partial: number;
   refuted: number;
@@ -19,14 +20,21 @@ function pct(n: number, total: number): string {
 
 function buildStats(rows: ReturnType<typeof getAll>): JournalistStats[] {
   const map = new Map<string, JournalistStats>();
+  const articleSets = new Map<string, Set<string>>();
   for (const s of rows) {
     const year = s.article_date.slice(0, 4);
-    const entry = map.get(s.journalist) ?? { name: s.journalist, total: 0, confirmed: 0, partial: 0, refuted: 0, pending: 0, oldestYear: year, newestYear: year };
+    const entry = map.get(s.journalist) ?? { name: s.journalist, total: 0, articles: 0, confirmed: 0, partial: 0, refuted: 0, pending: 0, oldestYear: year, newestYear: year };
     entry[s.status as Status]++;
     entry.total++;
     if (year < entry.oldestYear) entry.oldestYear = year;
     if (year > entry.newestYear) entry.newestYear = year;
     map.set(s.journalist, entry);
+    const urls = articleSets.get(s.journalist) ?? new Set<string>();
+    urls.add(s.article_url);
+    articleSets.set(s.journalist, urls);
+  }
+  for (const [name, entry] of map) {
+    entry.articles = articleSets.get(name)!.size;
   }
   return [...map.values()];
 }
@@ -40,12 +48,13 @@ function printTable(journalists: JournalistStats[], title: string, total: number
   console.log(`\n${"═".repeat(90)}`);
   console.log(`  ${title}`);
   console.log(`${"═".repeat(90)}\n`);
-  console.log(`  ${"Journalist".padEnd(32)} ${"Claims".padStart(6)}  ${"✓ Correct".padStart(10)}  ${"~ Partial".padStart(10)}  ${"✗ Incorrect".padStart(11)}  ${"? Pending".padStart(10)}  ${"Span".padStart(11)}`);
+  console.log(`  ${"Journalist".padEnd(32)} ${"Articles".padStart(8)}  ${"Claims".padStart(6)}  ${"✓ Correct".padStart(10)}  ${"~ Partial".padStart(10)}  ${"✗ Incorrect".padStart(11)}  ${"? Pending".padStart(10)}  ${"Span".padStart(11)}`);
   console.log(`  ${divider}`);
 
   for (const j of journalists) {
     console.log(
       `  ${j.name.padEnd(32)} ` +
+      `${String(j.articles).padStart(8)}  ` +
       `${String(j.total).padStart(6)}  ` +
       `${pct(j.confirmed, j.total).padStart(10)}  ` +
       `${pct(j.partial,   j.total).padStart(10)}  ` +
@@ -57,13 +66,14 @@ function printTable(journalists: JournalistStats[], title: string, total: number
 
   // Totals row
   const t = journalists.reduce(
-    (acc, j) => ({ total: acc.total + j.total, confirmed: acc.confirmed + j.confirmed, partial: acc.partial + j.partial, refuted: acc.refuted + j.refuted, pending: acc.pending + j.pending }),
-    { total: 0, confirmed: 0, partial: 0, refuted: 0, pending: 0 }
+    (acc, j) => ({ total: acc.total + j.total, articles: acc.articles + j.articles, confirmed: acc.confirmed + j.confirmed, partial: acc.partial + j.partial, refuted: acc.refuted + j.refuted, pending: acc.pending + j.pending }),
+    { total: 0, articles: 0, confirmed: 0, partial: 0, refuted: 0, pending: 0 }
   );
 
   console.log(`  ${divider}`);
   console.log(
     `  ${"TOTAL (shown)".padEnd(32)} ` +
+    `${String(t.articles).padStart(8)}  ` +
     `${String(t.total).padStart(6)}  ` +
     `${pct(t.confirmed, t.total).padStart(10)}  ` +
     `${pct(t.partial,   t.total).padStart(10)}  ` +
