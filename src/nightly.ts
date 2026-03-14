@@ -2,7 +2,7 @@ import * as dotenv from "dotenv";
 import nodemailer from "nodemailer";
 import { runExtract, type ExtractStats } from "./extract.js";
 import { runCheck, type CheckStats } from "./check.js";
-import { openDb, getDbStats } from "./db.js";
+import { openDb, getDbStats, getState } from "./db.js";
 dotenv.config();
 
 const NYT_API_KEY     = process.env.NYT_API_KEY!;
@@ -11,11 +11,14 @@ const GMAIL_USER      = process.env.GMAIL_USER!;
 const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD!;
 const EMAIL_TO        = "craigmcg.acc@gmail.com";
 
-// Budget: 500 req/day free tier
-// ~30 for new extract, ~70/month for backfill, ~2/claim for check
-// 3 backfill runs (~210 req) + new extract (~30 req) = ~240 req → ~130 claims checked
-const BACKFILL_RUNS_PER_NIGHT = 3;
-const MAX_CHECKS_PER_NIGHT = 130;
+const BACKFILL_STOP_DATE = "2019-01-01";
+
+// Budget: 500 req/day free tier, ~30 for new extract, ~70/month backfill, ~2/claim check
+// Backfill mode:  7 backfill runs (~490 req) — skip check to fill DB as fast as possible
+// Normal mode:    3 backfill runs (~210 req) + 130 checks (~260 req) once backfill is done
+const BACKFILL_RUNS_FILLING = 7;
+const BACKFILL_RUNS_NORMAL  = 3;
+const MAX_CHECKS_PER_NIGHT  = 130;
 
 async function sendEmail(subject: string, body: string): Promise<void> {
   if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
@@ -48,6 +51,15 @@ export async function runNightly(): Promise<void> {
   const backfillRuns: ExtractStats[] = [];
   let checkStats: CheckStats = { confirmed: 0, partial: 0, refuted: 0, pending: 0 };
 
+  // Determine mode: prioritise backfill until complete
+  const dbInit = openDb();
+  const oldestSoFar = getState(dbInit, "oldest_fetched_date");
+  dbInit.close();
+  const backfillDone = oldestSoFar !== null && oldestSoFar <= BACKFILL_STOP_DATE;
+  const backfillRuns_n = backfillDone ? BACKFILL_RUNS_NORMAL : BACKFILL_RUNS_FILLING;
+  const mode = backfillDone ? "normal" : "filling";
+  console.log(`Mode: ${mode} (oldest fetched: ${oldestSoFar ?? "none"})\n`);
+
   // 1. Fetch new articles
   console.log("--- Step 1: Fetch new articles ---");
   try {
@@ -57,9 +69,9 @@ export async function runNightly(): Promise<void> {
     console.error("Extract (new) failed:", err);
   }
 
-  // 2. Backfill (up to BACKFILL_RUNS_PER_NIGHT months)
-  console.log(`\n--- Step 2: Backfill (up to ${BACKFILL_RUNS_PER_NIGHT} months) ---`);
-  for (let i = 0; i < BACKFILL_RUNS_PER_NIGHT; i++) {
+  // 2. Backfill
+  console.log(`\n--- Step 2: Backfill (up to ${backfillRuns_n} months) ---`);
+  for (let i = 0; i < backfillRuns_n; i++) {
     try {
       const stats = await runExtract(NYT_API_KEY, ANTHROPIC_API_KEY, { backfill: true });
       backfillRuns.push(stats);
@@ -74,13 +86,17 @@ export async function runNightly(): Promise<void> {
     }
   }
 
-  // 3. Check pending speculations
+  // 3. Check pending speculations (skipped while filling)
   console.log("\n--- Step 3: Check pending speculations ---");
-  try {
-    checkStats = await runCheck(NYT_API_KEY, ANTHROPIC_API_KEY, false, MAX_CHECKS_PER_NIGHT);
-  } catch (err) {
-    errors.push(`Check: ${err}`);
-    console.error("Check failed:", err);
+  if (!backfillDone) {
+    console.log("Skipping check — backfill still in progress.");
+  } else {
+    try {
+      checkStats = await runCheck(NYT_API_KEY, ANTHROPIC_API_KEY, false, MAX_CHECKS_PER_NIGHT);
+    } catch (err) {
+      errors.push(`Check: ${err}`);
+      console.error("Check failed:", err);
+    }
   }
 
   // 4. Build email
@@ -105,17 +121,18 @@ NEW ARTICLES
   Fetched:        ${newExtract.articles}
   New claims:     ${newExtract.claims}
 
-BACKFILL  (${backfillRuns.length} month${backfillRuns.length !== 1 ? "s" : ""} processed)
+BACKFILL  (${mode} mode — ${backfillRuns.length} month${backfillRuns.length !== 1 ? "s" : ""} processed)
   Articles:       ${backfillArticles}
   New claims:     ${backfillClaims}
   Oldest fetched: ${oldestFetched ?? "n/a"}
   ${backfillComplete ? "✓ Backfill complete — all data since 2019-01-01 loaded." : "→ Run again tomorrow to continue backfill."}
 
 VERIFICATION
-  Confirmed:      ${checkStats.confirmed}
+${!backfillDone ? "  Skipped — backfill still in progress." :
+`  Confirmed:      ${checkStats.confirmed}
   Partial:        ${checkStats.partial}
   Refuted:        ${checkStats.refuted}
-  Still pending:  ${checkStats.pending}
+  Still pending:  ${checkStats.pending}`}
 
 DATABASE TOTALS
   Total claims:   ${stats.total}
