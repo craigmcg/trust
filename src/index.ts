@@ -17,7 +17,8 @@ switch (command) {
   }
   case "check": {
     const { runCheck } = await import("./check.js");
-    await runCheck(NYT_API_KEY, ANTHROPIC_API_KEY);
+    const qa = process.argv.includes("--qa");
+    await runCheck(NYT_API_KEY, ANTHROPIC_API_KEY, qa);
     break;
   }
   case "report": {
