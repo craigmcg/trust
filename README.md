@@ -1,6 +1,6 @@
 # trust
 
-A TypeScript project.
+A simple trust and reputation system for selected media sites.
 
 ## Install
 
