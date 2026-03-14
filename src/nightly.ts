@@ -12,8 +12,10 @@ const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD!;
 const EMAIL_TO        = "craigmcg.acc@gmail.com";
 
 // Budget: 500 req/day free tier
-// ~20 for new extract, ~65/month for backfill, ~60 for check → 5 backfill runs/night
-const BACKFILL_RUNS_PER_NIGHT = 5;
+// ~30 for new extract, ~70/month for backfill, ~2/claim for check
+// 3 backfill runs (~210 req) + new extract (~30 req) = ~240 req → ~130 claims checked
+const BACKFILL_RUNS_PER_NIGHT = 3;
+const MAX_CHECKS_PER_NIGHT = 130;
 
 async function sendEmail(subject: string, body: string): Promise<void> {
   if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
@@ -75,7 +77,7 @@ export async function runNightly(): Promise<void> {
   // 3. Check pending speculations
   console.log("\n--- Step 3: Check pending speculations ---");
   try {
-    checkStats = await runCheck(NYT_API_KEY, ANTHROPIC_API_KEY, false);
+    checkStats = await runCheck(NYT_API_KEY, ANTHROPIC_API_KEY, false, MAX_CHECKS_PER_NIGHT);
   } catch (err) {
     errors.push(`Check: ${err}`);
     console.error("Check failed:", err);

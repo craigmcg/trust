@@ -135,18 +135,20 @@ async function qaReview(
 
 export type CheckStats = Record<Status, number>;
 
-export async function runCheck(nytKey: string, anthropicKey: string, qa = false): Promise<CheckStats> {
+export async function runCheck(nytKey: string, anthropicKey: string, qa = false, maxClaims?: number): Promise<CheckStats> {
   const anthropic = new Anthropic({ apiKey: anthropicKey });
   const db = openDb();
 
-  const pending = getPending(db);
-  if (pending.length === 0) {
+  const allPending = getPending(db);
+  if (allPending.length === 0) {
     console.log("No pending speculations to check.");
     db.close();
     return { confirmed: 0, partial: 0, refuted: 0, pending: 0 };
   }
 
-  console.log(`Checking ${pending.length} pending speculations${qa ? " (QA mode)" : ""}...\n`);
+  const pending = maxClaims ? allPending.slice(0, maxClaims) : allPending;
+  const cappedMsg = maxClaims && pending.length < allPending.length ? ` (capped at ${maxClaims}; ${allPending.length - pending.length} deferred to next run)` : "";
+  console.log(`Checking ${pending.length} pending speculations${qa ? " (QA mode)" : ""}${cappedMsg}...\n`);
 
   const rl = qa ? readline.createInterface({ input: process.stdin, output: process.stdout }) : null;
   const counts: Record<Status, number> = { confirmed: 0, refuted: 0, partial: 0, pending: 0 };
