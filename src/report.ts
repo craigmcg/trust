@@ -9,6 +9,8 @@ interface JournalistStats {
   partial: number;
   refuted: number;
   pending: number;
+  oldestYear: string;
+  newestYear: string;
 }
 
 function pct(n: number, total: number): string {
@@ -18,20 +20,27 @@ function pct(n: number, total: number): string {
 function buildStats(rows: ReturnType<typeof getAll>): JournalistStats[] {
   const map = new Map<string, JournalistStats>();
   for (const s of rows) {
-    const entry = map.get(s.journalist) ?? { name: s.journalist, total: 0, confirmed: 0, partial: 0, refuted: 0, pending: 0 };
+    const year = s.article_date.slice(0, 4);
+    const entry = map.get(s.journalist) ?? { name: s.journalist, total: 0, confirmed: 0, partial: 0, refuted: 0, pending: 0, oldestYear: year, newestYear: year };
     entry[s.status as Status]++;
     entry.total++;
+    if (year < entry.oldestYear) entry.oldestYear = year;
+    if (year > entry.newestYear) entry.newestYear = year;
     map.set(s.journalist, entry);
   }
   return [...map.values()];
 }
 
+function span(j: JournalistStats): string {
+  return j.oldestYear === j.newestYear ? j.oldestYear : `${j.oldestYear} → ${j.newestYear}`;
+}
+
 function printTable(journalists: JournalistStats[], title: string, total: number): void {
-  const divider = "─".repeat(78);
-  console.log(`\n${"═".repeat(78)}`);
+  const divider = "─".repeat(90);
+  console.log(`\n${"═".repeat(90)}`);
   console.log(`  ${title}`);
-  console.log(`${"═".repeat(78)}\n`);
-  console.log(`  ${"Journalist".padEnd(32)} ${"Claims".padStart(6)}  ${"✓ Correct".padStart(10)}  ${"~ Partial".padStart(10)}  ${"✗ Incorrect".padStart(11)}  ${"? Pending".padStart(10)}`);
+  console.log(`${"═".repeat(90)}\n`);
+  console.log(`  ${"Journalist".padEnd(32)} ${"Claims".padStart(6)}  ${"✓ Correct".padStart(10)}  ${"~ Partial".padStart(10)}  ${"✗ Incorrect".padStart(11)}  ${"? Pending".padStart(10)}  ${"Span".padStart(11)}`);
   console.log(`  ${divider}`);
 
   for (const j of journalists) {
@@ -41,7 +50,8 @@ function printTable(journalists: JournalistStats[], title: string, total: number
       `${pct(j.confirmed, j.total).padStart(10)}  ` +
       `${pct(j.partial,   j.total).padStart(10)}  ` +
       `${pct(j.refuted,   j.total).padStart(11)}  ` +
-      `${pct(j.pending,   j.total).padStart(10)}`
+      `${pct(j.pending,   j.total).padStart(10)}  ` +
+      `${span(j).padStart(11)}`
     );
   }
 
