@@ -100,6 +100,8 @@ async function processArticles(anthropic: Anthropic, articles: Article[]): Promi
   return totalNew;
 }
 
+const BACKFILL_STOP_DATE = "2019-01-01";
+
 export async function runExtract(
   nytKey: string,
   anthropicKey: string,
@@ -114,19 +116,35 @@ export async function runExtract(
   let label: string;
 
   if (backfill) {
-    // Work backwards from where we left off
     const oldest = getState(db, "oldest_fetched_date");
     const windowEnd = oldest ? new Date(oldest) : new Date();
-    windowEnd.setDate(windowEnd.getDate() - 1); // day before oldest
+    windowEnd.setDate(windowEnd.getDate() - 1);
+
+    // Check if we've already reached the stop date
+    if (windowEnd.toISOString().slice(0, 10) <= BACKFILL_STOP_DATE) {
+      console.log(`Backfill complete — reached stop date ${BACKFILL_STOP_DATE}.`);
+      db.close();
+      return;
+    }
+
+    // Clamp window start to stop date
     const windowStart = subtractMonths(windowEnd, months);
+    const stopDate = new Date(BACKFILL_STOP_DATE);
+    if (windowStart < stopDate) windowStart.setTime(stopDate.getTime());
 
     beginDate = toNytDate(windowStart);
     endDate = toNytDate(windowEnd);
-    label = `backfill ${windowStart.toISOString().slice(0, 7)} → ${windowEnd.toISOString().slice(0, 7)}`;
+    label = `backfill ${windowStart.toISOString().slice(0, 10)} → ${windowEnd.toISOString().slice(0, 10)}`;
 
     setState(db, "oldest_fetched_date", windowStart.toISOString().slice(0, 10));
+
+    const monthsRemaining = Math.ceil(
+      (windowEnd.getTime() - stopDate.getTime()) / (1000 * 60 * 60 * 24 * 30)
+    );
+    db.close();
+    console.log(`Fetching NYT articles (${label})...`);
+    console.log(`~${monthsRemaining} months remaining to ${BACKFILL_STOP_DATE}\n`);
   } else {
-    // Fetch new articles since last run
     const newest = getState(db, "newest_fetched_date");
     const windowStart = newest ? new Date(newest) : subtractMonths(new Date(), 1);
     const windowEnd = new Date();
@@ -136,11 +154,10 @@ export async function runExtract(
     label = `new articles ${windowStart.toISOString().slice(0, 10)} → ${windowEnd.toISOString().slice(0, 10)}`;
 
     setState(db, "newest_fetched_date", windowEnd.toISOString().slice(0, 10));
+    db.close();
+    console.log(`Fetching NYT articles (${label})...`);
   }
 
-  db.close();
-
-  console.log(`Fetching NYT articles (${label})...`);
   const articles = await fetchArticles(nytKey, { beginDate, endDate });
   console.log(`\nFetched ${articles.length} articles.\n`);
 
@@ -157,7 +174,11 @@ export async function runExtract(
     const db2 = openDb();
     const oldest = getState(db2, "oldest_fetched_date");
     db2.close();
-    console.log(`Progress: oldest fetched date is now ${oldest}`);
-    console.log(`Run 'npm run extract:backfill' again to go further back.\n`);
+    console.log(`Oldest fetched: ${oldest}  |  Stop date: ${BACKFILL_STOP_DATE}`);
+    if (oldest && oldest <= BACKFILL_STOP_DATE) {
+      console.log("Backfill complete!");
+    } else {
+      console.log(`Run 'npm run extract:backfill' again to continue.\n`);
+    }
   }
 }
