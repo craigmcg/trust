@@ -1,13 +1,69 @@
-import { openDb, getAll, type Speculation, type Status } from "./db.js";
+import { openDb, getAll, type Status } from "./db.js";
 
-const STATUS_ICON: Record<Status, string> = {
-  confirmed: "✓",
-  refuted:   "✗",
-  partial:   "~",
-  pending:   "?",
-};
+const TOP_N = 40;
 
-export function runReport(): void {
+interface JournalistStats {
+  name: string;
+  total: number;
+  confirmed: number;
+  partial: number;
+  refuted: number;
+  pending: number;
+}
+
+function pct(n: number, total: number): string {
+  return total === 0 ? "  —  " : `${((n / total) * 100).toFixed(1)}%`;
+}
+
+function buildStats(rows: ReturnType<typeof getAll>): JournalistStats[] {
+  const map = new Map<string, JournalistStats>();
+  for (const s of rows) {
+    const entry = map.get(s.journalist) ?? { name: s.journalist, total: 0, confirmed: 0, partial: 0, refuted: 0, pending: 0 };
+    entry[s.status as Status]++;
+    entry.total++;
+    map.set(s.journalist, entry);
+  }
+  return [...map.values()];
+}
+
+function printTable(journalists: JournalistStats[], title: string, total: number): void {
+  const divider = "─".repeat(78);
+  console.log(`\n${"═".repeat(78)}`);
+  console.log(`  ${title}`);
+  console.log(`${"═".repeat(78)}\n`);
+  console.log(`  ${"Journalist".padEnd(32)} ${"Claims".padStart(6)}  ${"✓ Correct".padStart(10)}  ${"~ Partial".padStart(10)}  ${"✗ Incorrect".padStart(11)}  ${"? Pending".padStart(10)}`);
+  console.log(`  ${divider}`);
+
+  for (const j of journalists) {
+    console.log(
+      `  ${j.name.padEnd(32)} ` +
+      `${String(j.total).padStart(6)}  ` +
+      `${pct(j.confirmed, j.total).padStart(10)}  ` +
+      `${pct(j.partial,   j.total).padStart(10)}  ` +
+      `${pct(j.refuted,   j.total).padStart(11)}  ` +
+      `${pct(j.pending,   j.total).padStart(10)}`
+    );
+  }
+
+  // Totals row
+  const t = journalists.reduce(
+    (acc, j) => ({ total: acc.total + j.total, confirmed: acc.confirmed + j.confirmed, partial: acc.partial + j.partial, refuted: acc.refuted + j.refuted, pending: acc.pending + j.pending }),
+    { total: 0, confirmed: 0, partial: 0, refuted: 0, pending: 0 }
+  );
+
+  console.log(`  ${divider}`);
+  console.log(
+    `  ${"TOTAL (shown)".padEnd(32)} ` +
+    `${String(t.total).padStart(6)}  ` +
+    `${pct(t.confirmed, t.total).padStart(10)}  ` +
+    `${pct(t.partial,   t.total).padStart(10)}  ` +
+    `${pct(t.refuted,   t.total).padStart(11)}  ` +
+    `${pct(t.pending,   t.total).padStart(10)}`
+  );
+  console.log(`\n  ${journalists.length} journalists shown of ${total} total\n`);
+}
+
+export function runReport(sort: "volume" | "accuracy" = "volume"): void {
   const db = openDb();
   const rows = getAll(db);
   db.close();
@@ -17,56 +73,28 @@ export function runReport(): void {
     return;
   }
 
-  // ── All speculations ──
-  console.log(`\n${"═".repeat(70)}`);
-  console.log("  All Speculations");
-  console.log(`${"═".repeat(70)}\n`);
+  const all = buildStats(rows);
 
-  for (const s of rows) {
-    const icon = STATUS_ICON[s.status as Status] ?? "?";
-    console.log(`[${icon}] ${s.claim}`);
-    console.log(`    By: ${s.journalist}  |  ${s.article_date}`);
-    console.log(`    "${s.verbatim}"`);
-    if (s.timeframe) console.log(`    Timeframe: ${s.timeframe}`);
-    if (s.evidence) console.log(`    Evidence: ${s.evidence}`);
-    console.log();
+  // Top 40 by total claims
+  const top40 = [...all].sort((a, b) => b.total - a.total).slice(0, TOP_N);
+
+  if (sort === "accuracy") {
+    // Re-sort the top 40 by % correct (confirmed / total), then by total as tiebreaker
+    top40.sort((a, b) => {
+      const aAcc = a.total === 0 ? 0 : a.confirmed / a.total;
+      const bAcc = b.total === 0 ? 0 : b.confirmed / b.total;
+      return bAcc - aAcc || b.total - a.total;
+    });
+    printTable(top40, `Top ${TOP_N} Journalists by Volume — sorted by % Correct`, all.length);
+  } else {
+    printTable(top40, `Top ${TOP_N} Journalists by Volume`, all.length);
   }
 
-  // ── Journalist summary ──
-  const byJournalist = new Map<string, { confirmed: number; partial: number; refuted: number; pending: number; total: number }>();
-
-  for (const s of rows) {
-    const entry = byJournalist.get(s.journalist) ?? { confirmed: 0, partial: 0, refuted: 0, pending: 0, total: 0 };
-    entry[s.status as Status]++;
-    entry.total++;
-    byJournalist.set(s.journalist, entry);
-  }
-
-  // Sort by total speculations descending
-  const sorted = [...byJournalist.entries()].sort((a, b) => b[1].total - a[1].total);
-
-  console.log(`${"═".repeat(70)}`);
-  console.log("  Journalist Summary");
-  console.log(`${"═".repeat(70)}\n`);
-  console.log(`  ${"Journalist".padEnd(30)} Total  ✓ conf  ~ part  ✗ ref  ? pend`);
-  console.log(`  ${"─".repeat(65)}`);
-
-  for (const [name, counts] of sorted) {
-    console.log(
-      `  ${name.padEnd(30)} ${String(counts.total).padStart(5)}  ` +
-      `${String(counts.confirmed).padStart(6)}  ` +
-      `${String(counts.partial).padStart(6)}  ` +
-      `${String(counts.refuted).padStart(5)}  ` +
-      `${String(counts.pending).padStart(6)}`
-    );
-  }
-
-  // ── Overall stats ──
+  // Overall DB totals
   const totals = rows.reduce(
     (acc, s) => { acc[s.status as Status]++; return acc; },
     { confirmed: 0, partial: 0, refuted: 0, pending: 0 }
   );
-
-  console.log(`\n  Total: ${rows.length} speculations`);
-  console.log(`  ✓ confirmed: ${totals.confirmed}  ~ partial: ${totals.partial}  ✗ refuted: ${totals.refuted}  ? pending: ${totals.pending}\n`);
+  console.log(`  DB totals — ${rows.length} claims across ${all.length} journalists`);
+  console.log(`  ✓ ${totals.confirmed}  ~ ${totals.partial}  ✗ ${totals.refuted}  ? ${totals.pending}\n`);
 }

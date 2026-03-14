@@ -10,6 +10,7 @@
     "check": "node dist/index.js check",
     "check:qa": "node dist/index.js check --qa",
     "report": "node dist/index.js report",
+    "report:accuracy": "node dist/index.js report --sort=accuracy",
     "edit": "node dist/index.js edit",
     "nightly": "node dist/index.js nightly",
     "test": "echo \"Error: no test specified\" && exit 1"

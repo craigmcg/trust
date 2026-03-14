@@ -26,7 +26,8 @@ switch (command) {
   }
   case "report": {
     const { runReport } = await import("./report.js");
-    runReport();
+    const sort = process.argv.includes("--sort=accuracy") ? "accuracy" : "volume";
+    runReport(sort);
     break;
   }
   case "nightly": {
