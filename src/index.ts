@@ -1,77 +1,33 @@
 import * as dotenv from "dotenv";
 dotenv.config();
 
-const API_KEY = process.env.NYT_API_KEY;
-if (!API_KEY) {
-  console.error("Missing NYT_API_KEY in .env");
-  process.exit(1);
-}
+const NYT_API_KEY = process.env.NYT_API_KEY;
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
-const BASE_URL = "https://api.nytimes.com/svc/search/v2/articlesearch.json";
-const PAGES = 10;
+if (!NYT_API_KEY) { console.error("Missing NYT_API_KEY in .env"); process.exit(1); }
+if (!ANTHROPIC_API_KEY) { console.error("Missing ANTHROPIC_API_KEY in .env"); process.exit(1); }
 
-async function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
+const command = process.argv[2];
 
-async function fetchPage(page: number, retries = 3): Promise<string[]> {
-  const params = new URLSearchParams({
-    q: "politics",
-    page: String(page),
-    "api-key": API_KEY!,
-  });
-
-  const response = await fetch(`${BASE_URL}?${params}`);
-
-  if (response.status === 429 && retries > 0) {
-    const wait = (4 - retries) * 10000 + 10000; // 10s, 20s, 30s
-    console.log(`Rate limited on page ${page}, retrying in ${wait / 1000}s...`);
-    await sleep(wait);
-    return fetchPage(page, retries - 1);
+switch (command) {
+  case "extract": {
+    const { runExtract } = await import("./extract.js");
+    await runExtract(NYT_API_KEY, ANTHROPIC_API_KEY);
+    break;
   }
-
-  if (!response.ok) {
-    console.error(`Page ${page} failed: ${response.status}`);
-    return [];
+  case "check": {
+    const { runCheck } = await import("./check.js");
+    await runCheck(NYT_API_KEY, ANTHROPIC_API_KEY);
+    break;
   }
-
-  const data = await response.json() as {
-    status: string;
-    response?: { docs: Array<{ byline?: { original?: string } }> };
-  };
-
-  if (data.status !== "OK" || !data.response?.docs) return [];
-
-  return data.response.docs
-    .map((doc) => doc.byline?.original)
-    .filter((name): name is string => Boolean(name))
-    .flatMap((name) =>
-      name
-        .replace(/^By /i, "")
-        .split(/,| and /)
-        .map((n) => n.trim())
-        .filter(Boolean)
-    );
-}
-
-async function getPoliticalJournalists(): Promise<void> {
-  const counts = new Map<string, number>();
-
-  for (let page = 0; page < PAGES; page++) {
-    process.stdout.write(`Fetching page ${page + 1}/${PAGES}...\r`);
-    const bylines = await fetchPage(page);
-    for (const name of bylines) {
-      counts.set(name, (counts.get(name) ?? 0) + 1);
-    }
-    if (page < PAGES - 1) await sleep(2000);
+  case "report": {
+    const { runReport } = await import("./report.js");
+    runReport();
+    break;
   }
-
-  const journalists = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-
-  console.log(`\nFound ${journalists.length} NYT political journalists:\n`);
-  journalists.forEach(([name, count]) => {
-    console.log(`  ${name} (${count} articles)`);
-  });
+  default:
+    console.log("Usage: npm run <command>");
+    console.log("  extract  — fetch NYT articles and extract speculative claims");
+    console.log("  check    — check pending speculations against recent news");
+    console.log("  report   — show all speculations and journalist summary");
 }
-
-getPoliticalJournalists().catch(console.error);
