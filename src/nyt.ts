@@ -25,7 +25,20 @@ async function fetchPage(
   const params = new URLSearchParams({ q: query, page: String(page), sort: "newest", "api-key": apiKey });
   if (beginDate) params.set("begin_date", beginDate);
   if (endDate) params.set("end_date", endDate);
-  const response = await fetch(`${BASE_URL}?${params}`);
+
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}?${params}`);
+  } catch (err) {
+    if (retries > 0) {
+      const wait = (4 - retries) * 10000 + 10000;
+      process.stdout.write(`\n  Network error, retrying in ${wait / 1000}s...`);
+      await sleep(wait);
+      return fetchPage(apiKey, page, query, beginDate, endDate, retries - 1);
+    }
+    process.stdout.write(`\n  Network error, giving up on page ${page + 1}.`);
+    return [];
+  }
 
   if (response.status === 429 && retries > 0) {
     const wait = (4 - retries) * 10000 + 10000;
