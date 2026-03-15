@@ -1,6 +1,20 @@
-import { openDb, getAll, type Status } from "./db.js";
+import { openDb, getAll, type Status, type Speculation } from "./db.js";
 
 const TOP_N = 40;
+
+// ── Analysis mode types ──────────────────────────────────────────────────────
+
+type TimeframeBucket =
+  | "Election-tied" | "Near-term" | "Short-term" | "Medium-term"
+  | "Long-term" | "Court/legal" | "Ongoing" | "Unspecified";
+
+interface IntensityRow {
+  name: string;
+  articles: number;
+  claims: number;
+  ratio: number;
+  topBucket: TimeframeBucket;
+}
 
 interface JournalistStats {
   name: string;
@@ -81,6 +95,113 @@ function printTable(journalists: JournalistStats[], title: string, total: number
     `${pct(t.pending,   t.total).padStart(10)}`
   );
   console.log(`\n  ${journalists.length} journalists shown of ${total} total\n`);
+}
+
+// ── Analysis mode functions ──────────────────────────────────────────────────
+
+function classifyTimeframe(tf: string): TimeframeBucket {
+  const t = tf.toLowerCase();
+  if (/election|midterm|primary|2026|2024|2028/.test(t)) return "Election-tied";
+  if (/week|day|imminent|hour/.test(t))                  return "Short-term";
+  if (/month/.test(t))                                   return "Medium-term";
+  if (/year|long-term/.test(t))                          return "Long-term";
+  if (/court|ruling|verdict|legal|lawsuit|case/.test(t)) return "Court/legal";
+  if (/ongoing/.test(t))                                 return "Ongoing";
+  if (/near/.test(t))                                    return "Near-term";
+  return "Unspecified";
+}
+
+function buildIntensityRows(rows: Speculation[], minArticles = 5): IntensityRow[] {
+  const claimsMap   = new Map<string, Speculation[]>();
+  const articleSets = new Map<string, Set<string>>();
+
+  for (const s of rows) {
+    const claims = claimsMap.get(s.journalist) ?? [];
+    claims.push(s);
+    claimsMap.set(s.journalist, claims);
+    const urls = articleSets.get(s.journalist) ?? new Set<string>();
+    urls.add(s.article_url);
+    articleSets.set(s.journalist, urls);
+  }
+
+  const result: IntensityRow[] = [];
+  for (const [name, claims] of claimsMap) {
+    const articles = articleSets.get(name)!.size;
+    if (articles < minArticles) continue;
+
+    const bucketCounts = new Map<TimeframeBucket, number>();
+    for (const s of claims) {
+      const b = classifyTimeframe(s.timeframe);
+      bucketCounts.set(b, (bucketCounts.get(b) ?? 0) + 1);
+    }
+    const topBucket = ([...bucketCounts.entries()].sort((a, b) => b[1] - a[1])[0] ?? ["Unspecified"])[0] as TimeframeBucket;
+
+    result.push({ name, articles, claims: claims.length, ratio: claims.length / articles, topBucket });
+  }
+
+  return result.sort((a, b) => b.ratio - a.ratio || b.claims - a.claims);
+}
+
+function buildTimeframeBuckets(rows: Speculation[]): { bucket: TimeframeBucket; count: number }[] {
+  const counts = new Map<TimeframeBucket, number>();
+  for (const s of rows) {
+    const b = classifyTimeframe(s.timeframe);
+    counts.set(b, (counts.get(b) ?? 0) + 1);
+  }
+  const ORDER: TimeframeBucket[] = [
+    "Election-tied", "Near-term", "Short-term", "Medium-term",
+    "Long-term", "Court/legal", "Ongoing", "Unspecified",
+  ];
+  return ORDER.map(bucket => ({ bucket, count: counts.get(bucket) ?? 0 }));
+}
+
+function printIntensityTable(rows: IntensityRow[]): void {
+  const TOP = 20;
+  const shown = rows.slice(0, TOP);
+  const divider = "─".repeat(83);
+  console.log(`\n${"═".repeat(85)}`);
+  console.log(`  Speculation Intensity — Top ${TOP} by Claims/Article (min 5 articles)`);
+  console.log(`${"═".repeat(85)}\n`);
+  console.log(`  ${"Journalist".padEnd(32)} ${"Articles".padStart(8)}  ${"Claims".padStart(6)}  ${"Claims/Art".padStart(10)}  ${"Top Timeframe"}`);
+  console.log(`  ${divider}`);
+  for (const r of shown) {
+    console.log(
+      `  ${r.name.padEnd(32)} ` +
+      `${String(r.articles).padStart(8)}  ` +
+      `${String(r.claims).padStart(6)}  ` +
+      `${r.ratio.toFixed(2).padStart(10)}  ` +
+      `${r.topBucket}`
+    );
+  }
+  console.log(`\n  ${rows.length} journalists qualify (≥5 articles), showing top ${TOP}\n`);
+}
+
+function printTimeframeTable(buckets: { bucket: TimeframeBucket; count: number }[], total: number): void {
+  const divider = "─".repeat(42);
+  console.log(`${"═".repeat(44)}`);
+  console.log(`  Timeframe Distribution — ${total} total claims`);
+  console.log(`${"═".repeat(44)}\n`);
+  console.log(`  ${"Bucket".padEnd(16)} ${"Claims".padStart(7)}  ${"% of Total".padStart(10)}`);
+  console.log(`  ${divider}`);
+  for (const { bucket, count } of buckets) {
+    console.log(`  ${bucket.padEnd(16)} ${String(count).padStart(7)}  ${pct(count, total).padStart(10)}`);
+  }
+  console.log(`  ${divider}`);
+  console.log(`  ${"TOTAL".padEnd(16)} ${String(total).padStart(7)}\n`);
+}
+
+export function runAnalysis(): void {
+  const db = openDb();
+  const rows = getAll(db);
+  db.close();
+
+  if (rows.length === 0) {
+    console.log("No speculations in database. Run `npm run extract` first.");
+    return;
+  }
+
+  printIntensityTable(buildIntensityRows(rows));
+  printTimeframeTable(buildTimeframeBuckets(rows), rows.length);
 }
 
 export function runReport(sort: "volume" | "accuracy" = "volume"): void {

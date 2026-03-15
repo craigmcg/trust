@@ -25,9 +25,14 @@ switch (command) {
     break;
   }
   case "report": {
-    const { runReport } = await import("./report.js");
-    const sort = process.argv.includes("--sort=accuracy") ? "accuracy" : "volume";
-    runReport(sort);
+    if (process.argv.includes("--analysis")) {
+      const { runAnalysis } = await import("./report.js");
+      runAnalysis();
+    } else {
+      const { runReport } = await import("./report.js");
+      const sort = process.argv.includes("--sort=accuracy") ? "accuracy" : "volume";
+      runReport(sort);
+    }
     break;
   }
   case "nightly": {
