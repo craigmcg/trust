@@ -17,7 +17,7 @@ NYT Article Search API
         ↓
   Fetch articles (abstract, snippet, lead paragraph, byline, date)
         ↓
-  Claude Opus 4.6 (batches of 10)
+  Claude Opus 4.6 (batches of 10, structured output via zod)
         ↓
   Extract discrete, falsifiable claims
   e.g. "The housing order could collapse bipartisan legislation"
@@ -26,8 +26,10 @@ NYT Article Search API
 ```
 
 - **Normal mode** fetches articles published since the last run (keeps the DB current)
-- **Backfill mode** works backwards one month at a time from the oldest fetched date, stopping at 2019-01-01
+- **Backfill mode** works backwards N months at a time from the oldest fetched date, stopping at 2019-01-01. Pass `--months=N` to fetch multiple months in one call (default: 1)
+- **Refetch mode** (`--refetch=YYYY-MM`) re-fetches a specific month without moving the state pointer — useful for filling gaps
 - Duplicates are silently ignored via a unique index on `(article_url, verbatim)`
+- Claude responses are parsed using `zodOutputFormat` for reliable structured extraction
 
 ### 2. Check (`npm run check` / `npm run check:qa`)
 
@@ -49,16 +51,16 @@ SQLite — pending speculations
 
 ### 3. Report (`npm run report`)
 
-Reads the database and displays:
-- Every claim with its status, verbatim quote, and evidence
-- A journalist summary table: total claims, confirmed, partial, refuted, pending
+Reads the database and displays a journalist summary table: total claims, confirmed, partial, refuted, pending. Supports:
+- `--sort=accuracy` — re-sort by % correct instead of claim volume
+- `--analysis` — speculation intensity and timeframe breakdown (via `npm run report:analysis`)
 
 ### 4. Nightly (`npm run nightly`)
 
 Orchestrates the full pipeline automatically:
 1. Fetch new articles (extract, normal mode)
-2. Run backfill for 5 months (working backwards toward 2019)
-3. Check all pending speculations
+2. Run backfill — **7 months** in filling mode (while oldest_fetched_date > 2019-01-01), **3 months** in normal mode
+3. Check up to 130 pending speculations — **skipped in filling mode**
 4. Email a summary to craigmcg.acc@gmail.com
 
 Runs daily at 2 AM via cron (`scripts/install-cron.sh`).
@@ -118,10 +120,13 @@ Tracks fetch progress:
 | Command              | Description                                         |
 |----------------------|-----------------------------------------------------|
 | `npm run extract`    | Fetch new articles since last run                   |
-| `npm run extract:backfill` | Fetch one month further back                  |
+| `npm run extract:backfill` | Fetch one month further back (use `--months=N` for more) |
+| `npm run extract:refetch` | Re-fetch a specific month (`--refetch=YYYY-MM`) without moving state |
 | `npm run check`      | Verify pending speculations against recent news     |
 | `npm run check:qa`   | Same, with interactive review before saving         |
-| `npm run report`     | Display all claims and journalist summary           |
+| `npm run report`     | Journalist summary table (top 40 by claim volume)   |
+| `npm run report:accuracy` | Same, sorted by % correct                     |
+| `npm run report:analysis` | Speculation intensity and timeframe breakdown  |
 | `npm run edit`       | Correct an existing assessment                      |
 | `npm run nightly`    | Run the full pipeline and email a summary           |
 
@@ -134,11 +139,11 @@ Tracks fetch progress:
 | `src/index.ts` | CLI entry point. Reads `process.argv` to dispatch to the correct command handler (`extract`, `check`, `report`, `edit`, `nightly`), passing flags like `--backfill`, `--qa`, and `--sort=accuracy`. |
 | `src/db.ts` | All SQLite logic. Defines the `Speculation` type and `Status` enum, creates the `speculations` and `state` tables on first open, and exports CRUD functions: `insertSpeculation`, `getPending`, `updateStatus`, `getAll`, `getState`, `setState`, `getDbStats`. |
 | `src/nyt.ts` | NYT Article Search API client. `fetchArticles()` pages through results for a date range (used by extract); `searchArticles()` queries by keyword (used by check). Includes exponential-backoff retry on 429 rate-limit responses, plus `toNytDate()` and `subtractMonths()` date helpers. |
-| `src/extract.ts` | Fetches articles from `nyt.ts` and sends them to Claude in batches of 10 to extract falsifiable claims. Handles both normal mode (articles since last run) and backfill mode (one month further back each call, stopping at 2019-01-01). Writes new claims to the DB via `insertSpeculation` and updates `oldest_fetched_date` / `newest_fetched_date` in the `state` table. |
+| `src/extract.ts` | Fetches articles from `nyt.ts` and sends them to Claude in batches of 10 to extract falsifiable claims using structured output (`zodOutputFormat`). Handles normal mode (articles since last run), backfill mode (N months further back each call, stopping at 2019-01-01), and refetch mode (specific YYYY-MM without moving state). Writes new claims to the DB via `insertSpeculation` and updates `oldest_fetched_date` / `newest_fetched_date` in the `state` table. |
 | `src/check.ts` | Verifies pending speculations. For each one, searches NYT for related articles, then asks Claude to assess the outcome (`confirmed` / `partial` / `refuted` / `pending`). In `--qa` mode, shows Claude's reasoning interactively and lets the user accept or override before saving. Updates the DB via `updateStatus`. |
 | `src/report.ts` | Reads the full database and prints a summary table of the top 40 journalists by claim volume, with columns for total claims and % correct / partial / incorrect / pending. Accepts a `sort` argument: `"volume"` (default) or `"accuracy"` (re-sorts the top 40 by % correct). |
 | `src/edit.ts` | Interactive CLI for correcting an existing assessment. Lists all speculations with their current status, prompts for a number, shows the full record, then lets the user change the status and update the evidence note. |
-| `src/nightly.ts` | Orchestrates the full pipeline: (1) fetch new articles, (2) run up to 5 backfill months, (3) check all pending speculations, (4) email a summary report via nodemailer/Gmail SMTP. Reads `GMAIL_USER` and `GMAIL_APP_PASSWORD` from `.env`; if absent, prints the email body to stdout instead. |
+| `src/nightly.ts` | Orchestrates the full pipeline: (1) fetch new articles, (2) run up to 7 backfill months in filling mode or 3 in normal mode, (3) check up to 130 pending speculations (skipped in filling mode), (4) email a summary report via nodemailer/Gmail SMTP. Reads `GMAIL_USER` and `GMAIL_APP_PASSWORD` from `.env`; if absent, prints the email body to stdout instead. |
 
 ---
 
