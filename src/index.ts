@@ -15,7 +15,9 @@ switch (command) {
     const backfill = process.argv.includes("--backfill");
     const monthsArg = process.argv.find((a) => a.startsWith("--months="));
     const months = monthsArg ? parseInt(monthsArg.split("=")[1]!, 10) : 1;
-    await runExtract(NYT_API_KEY, ANTHROPIC_API_KEY, { backfill, months });
+    const refetchArg = process.argv.find((a) => a.startsWith("--refetch="));
+    const refetch = refetchArg ? refetchArg.split("=")[1] : undefined;
+    await runExtract(NYT_API_KEY, ANTHROPIC_API_KEY, { backfill, months, ...(refetch ? { refetch } : {}) });
     break;
   }
   case "check": {

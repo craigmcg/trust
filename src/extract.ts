@@ -112,9 +112,30 @@ const BACKFILL_STOP_DATE = "2019-01-01";
 export async function runExtract(
   nytKey: string,
   anthropicKey: string,
-  options: { backfill?: boolean; months?: number } = {}
+  options: { backfill?: boolean; months?: number; refetch?: string } = {}
 ): Promise<ExtractStats> {
-  const { backfill = false, months = 1 } = options;
+  const { backfill = false, months = 1, refetch } = options;
+
+  // Refetch mode: fetch a specific YYYY-MM without touching the state pointer
+  if (refetch) {
+    const [year, month] = refetch.split("-").map(Number);
+    const windowStart = new Date(year!, month! - 1, 1);
+    const windowEnd = new Date(year!, month!, 0); // last day of month
+    const beginDate = toNytDate(windowStart);
+    const endDate = toNytDate(windowEnd);
+    const anthropic = new Anthropic({ apiKey: anthropicKey });
+    console.log(`Refetching NYT articles for ${refetch} (${beginDate} → ${endDate})...`);
+    const articles = await fetchArticles(nytKey, { beginDate, endDate });
+    console.log(`\nFetched ${articles.length} articles.\n`);
+    if (articles.length === 0) {
+      console.log("No articles found.");
+      return { articles: 0, claims: 0, oldestFetched: null, backfillComplete: false };
+    }
+    console.log("Extracting speculative claims with Claude...\n");
+    const totalNew = await processArticles(anthropic, articles);
+    console.log(`\nDone. Stored ${totalNew} new claims for ${refetch}.\n`);
+    return { articles: articles.length, claims: totalNew, oldestFetched: null, backfillComplete: false };
+  }
   const anthropic = new Anthropic({ apiKey: anthropicKey });
   const db = openDb();
 
@@ -142,8 +163,6 @@ export async function runExtract(
     beginDate = toNytDate(windowStart);
     endDate = toNytDate(windowEnd);
     label = `backfill ${windowStart.toISOString().slice(0, 10)} → ${windowEnd.toISOString().slice(0, 10)}`;
-
-    setState(db, "oldest_fetched_date", windowStart.toISOString().slice(0, 10));
 
     const monthsRemaining = Math.ceil(
       (windowEnd.getTime() - stopDate.getTime()) / (1000 * 60 * 60 * 24 * 30)
@@ -180,7 +199,9 @@ export async function runExtract(
   const totalNew = await processArticles(anthropic, articles);
   console.log(`\nDone. Stored ${totalNew} new speculative claims.\n`);
 
+  // Update state only after successful fetch+process
   const db2 = openDb();
+  if (backfill) setState(db2, "oldest_fetched_date", beginDate.slice(0, 4) + "-" + beginDate.slice(4, 6) + "-" + beginDate.slice(6, 8));
   const oldest = getState(db2, "oldest_fetched_date");
   db2.close();
 
