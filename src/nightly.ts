@@ -152,7 +152,11 @@ Duration: ${duration} min
     : `[trust] Nightly run — ${newExtract.claims + backfillClaims} new claims`;
 
   console.log("\n--- Step 4: Send email ---");
-  await sendEmail(subject, body);
+  try {
+    await sendEmail(subject, body);
+  } catch (err) {
+    console.error("Email failed (non-fatal):", err);
+  }
 
   console.log(`\n=== Done in ${duration} min ===\n`);
 }

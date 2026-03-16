@@ -2,7 +2,6 @@
 # Nightly trust run — called by cron
 # Logs to ~/Library/Logs/trust-nightly.log
 
-set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 LOG_FILE="$HOME/Library/Logs/trust-nightly.log"
